@@ -157,7 +157,7 @@ class WithoutOverlappingJobsTest extends QueueTestCase
         $job = new OverlappingTestJobWithDisplayName;
 
         $this->assertSame(
-            'laravel-queue-overlap:App\\Actions\\WithoutOverlappingTestAction:key',
+            'laravel-queue-overlap:'.hash('xxh128', 'App\\Actions\\WithoutOverlappingTestAction').':key',
             (new WithoutOverlapping('key'))->getLockKey($job)
         );
 
@@ -167,13 +167,33 @@ class WithoutOverlappingJobsTest extends QueueTestCase
         );
 
         $this->assertSame(
-            'prefix:App\\Actions\\WithoutOverlappingTestAction:key',
+            'prefix:'.hash('xxh128', 'App\\Actions\\WithoutOverlappingTestAction').':key',
             (new WithoutOverlapping('key'))->withPrefix('prefix:')->getLockKey($job)
         );
 
         $this->assertSame(
             'prefix:key',
             (new WithoutOverlapping('key'))->withPrefix('prefix:')->shared()->getLockKey($job)
+        );
+
+        $this->assertSame(
+            'prefix:'.hash('xxh128', 'App\\Actions\\WithoutOverlappingTestAction').':unit',
+            (new WithoutOverlapping(UnitCategory::unit))->withPrefix('prefix:')->getLockKey($job)
+        );
+
+        $this->assertSame(
+            'prefix:unit',
+            (new WithoutOverlapping(UnitCategory::unit))->withPrefix('prefix:')->shared()->getLockKey($job)
+        );
+
+        $this->assertSame(
+            'prefix:'.hash('xxh128', 'App\\Actions\\WithoutOverlappingTestAction').':backed',
+            (new WithoutOverlapping(BackedCategory::backed))->withPrefix('prefix:')->getLockKey($job)
+        );
+
+        $this->assertSame(
+            'prefix:backed',
+            (new WithoutOverlapping(BackedCategory::backed))->withPrefix('prefix:')->shared()->getLockKey($job)
         );
     }
 }
@@ -253,4 +273,14 @@ class OverlappingTestJobWithDisplayName extends OverlappingTestJob
     {
         return 'App\\Actions\\WithoutOverlappingTestAction';
     }
+}
+
+enum UnitCategory
+{
+    case unit;
+}
+
+enum BackedCategory: string
+{
+    case backed = 'backed';
 }

@@ -98,13 +98,32 @@ class DatabaseLock extends Lock
     }
 
     /**
+     * Attempt to refresh the lock for the given number of seconds.
+     *
+     * @param  int|null  $seconds
+     * @return bool
+     */
+    public function refresh($seconds = null)
+    {
+        $seconds ??= $this->seconds;
+
+        return $this->connection->table($this->table)
+            ->where('key', $this->name)
+            ->where('owner', $this->owner)
+            ->where('expiration', '>', $this->currentTime())
+            ->update(['expiration' => $this->expiresAt($seconds)]) >= 1;
+    }
+
+    /**
      * Get the UNIX timestamp indicating when the lock should expire.
      *
      * @return int
      */
-    protected function expiresAt()
+    protected function expiresAt($seconds = null)
     {
-        $lockTimeout = $this->seconds > 0 ? $this->seconds : $this->defaultTimeoutInSeconds;
+        $seconds ??= $this->seconds;
+
+        $lockTimeout = $seconds > 0 ? $seconds : $this->defaultTimeoutInSeconds;
 
         return $this->currentTime() + $lockTimeout;
     }
@@ -113,16 +132,26 @@ class DatabaseLock extends Lock
      * Release the lock.
      *
      * @return bool
+     *
+     * @throws \Throwable
      */
     public function release()
     {
         if ($this->isOwnedByCurrentProcess()) {
-            $this->connection->table($this->table)
-                ->where('key', $this->name)
-                ->where('owner', $this->owner)
-                ->delete();
+            try {
+                $this->connection->table($this->table)
+                    ->where('key', $this->name)
+                    ->where('owner', $this->owner)
+                    ->delete();
 
-            return true;
+                return true;
+            } catch (Throwable $e) {
+                if ($this->causedByConcurrencyError($e)) {
+                    return true;
+                }
+
+                throw $e;
+            }
         }
 
         return false;
