@@ -355,9 +355,7 @@ class Rule
      */
     public static function compile($attribute, $rules, $data = null)
     {
-        $parser = new ValidationRuleParser(
-            Arr::undot(Arr::wrap($data))
-        );
+        $compiler = new ValidationRuleCompiler(Arr::undot(Arr::wrap($data)));
 
         if (is_array($rules) && ! array_is_list($rules)) {
             $nested = [];
@@ -371,6 +369,6 @@ class Rule
             $rules = [$attribute => $rules];
         }
 
-        return $parser->explode(ValidationRuleParser::filterConditionalRules($rules, $data));
+        return $compiler->compile($rules, $data);
     }
 }

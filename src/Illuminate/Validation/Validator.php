@@ -90,6 +90,13 @@ class Validator implements ValidatorContract
     protected $rules;
 
     /**
+     * The validation rule parser.
+     *
+     * @var \Illuminate\Validation\ValidationRuleParser
+     */
+    private $ruleParser;
+
+    /**
      * The current rule that is validating.
      *
      * @var string
@@ -353,6 +360,7 @@ class Validator implements ValidatorContract
         $this->customMessages = $messages;
         $this->data = $this->parseData($data);
         $this->customAttributes = $attributes;
+        $this->ruleParser = new ValidationRuleParser;
 
         $this->setRules($rules);
     }
@@ -676,7 +684,7 @@ class Validator implements ValidatorContract
     {
         $this->currentRule = $rule;
 
-        [$rule, $parameters] = ValidationRuleParser::parse($rule);
+        [$rule, $parameters] = $this->ruleParser->parse($rule);
 
         if ($rule === '') {
             return;
@@ -1157,7 +1165,7 @@ class Validator implements ValidatorContract
         $rules = (array) $rules;
 
         foreach ($this->rules[$attribute] as $rule) {
-            [$rule, $parameters] = ValidationRuleParser::parse($rule);
+            [$rule, $parameters] = $this->ruleParser->parse($rule);
 
             if (in_array($rule, $rules)) {
                 return [$rule, $parameters];
@@ -1300,8 +1308,7 @@ class Validator implements ValidatorContract
         // The primary purpose of this parser is to expand any "*" rules to the all
         // of the explicit rules needed for the given data. For example the rule
         // names.* would get expanded to names.0, names.1, etc. for this data.
-        $response = (new ValidationRuleParser($this->data))
-            ->explode(ValidationRuleParser::filterConditionalRules($rules, $this->data));
+        $response = (new ValidationRuleCompiler($this->data))->compile($rules);
 
         foreach ($response->rules as $key => $rule) {
             $this->rules[$key] = array_merge($this->rules[$key] ?? [], $rule);
@@ -1325,7 +1332,7 @@ class Validator implements ValidatorContract
         $payload = new Fluent($this->data);
 
         foreach ((array) $attribute as $key) {
-            $response = (new ValidationRuleParser($this->data))->explode([$key => $rules]);
+            $response = (new ValidationRuleCompiler($this->data))->explode([$key => $rules]);
 
             $this->implicitAttributes = array_merge($response->implicitAttributes, $this->implicitAttributes);
 
