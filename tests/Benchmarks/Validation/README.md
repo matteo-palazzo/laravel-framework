@@ -66,3 +66,59 @@ time by 37.4 percent. Build time increased by 0.5 percent. Both implementations
 used 26.5 MB during execution with a 31 MB build peak.
 
 These results are the pre-compiler-cache reference for subsequent experiments.
+
+## Stateful compiler cache
+
+The compiler caches the expanded form of wildcard rule sets containing only
+strings. The cache is reset for each `explode()` call. When an attribute does
+not already have rules, the cached array is assigned directly and shared using
+PHP copy-on-write. Overlapping rules still use the original merge path. Rule
+objects, closures, and compilable rules continue to be prepared for every
+concrete attribute.
+
+### Parsing cache without shared assignment
+
+The following A/B comparison was run in the same environment and session. The
+first cached variant avoided repeated normalization but still called
+`array_merge([], $merge)` for every expanded attribute.
+
+| Rows | Uncached build | Cached build | Uncached run | Cached run | Uncached total | Cached total |
+|---:|---:|---:|---:|---:|---:|---:|
+| 500 | 10.43 ms | 9.27 ms | 27.25 ms | 26.37 ms | 37.68 ms | 35.65 ms |
+| 1,000 | 21.54 ms | 17.92 ms | 53.02 ms | 51.27 ms | 74.56 ms | 69.18 ms |
+| 3,000 | 63.80 ms | 54.03 ms | 154.69 ms | 152.81 ms | 218.49 ms | 206.84 ms |
+| 7,000 | 175.46 ms | 162.90 ms | 431.85 ms | 386.79 ms | 607.30 ms | 549.68 ms |
+
+At 7,000 rows, memory after the build decreased from 26.5 MB to 18.5 MB and
+build peak decreased from 31 MB to 25 MB.
+
+The 7,000-row result was repeated in reverse order with five processes per
+variant to check the unexpected run-time difference:
+
+| Variant | Build | Run | Total | Build memory | Build peak |
+|---|---:|---:|---:|---:|---:|
+| Uncached | 170.06 ms | 358.40 ms | 528.47 ms | 26.5 MB | 31 MB |
+| Cached | 149.50 ms | 362.74 ms | 512.24 ms | 18.5 MB | 25 MB |
+
+The repeated measurement reduced build time by 12.1 percent and total time by
+3.1 percent. It revealed that avoiding normalization alone did not implement
+the copy-on-write sharing measured in the earlier prototype.
+
+### Final cache with copy-on-write sharing
+
+The final implementation assigns the cached array directly when no rules have
+already been compiled for the concrete attribute. Measurements use five
+separate processes per variant at 7,000 rows.
+
+| Scenario | Variant | Build | Run | Total | Build memory | Build peak |
+|---|---|---:|---:|---:|---:|---:|
+| Five realistic wildcard fields | Uncached | 170.06 ms | 358.40 ms | 528.47 ms | 26.5 MB | 31 MB |
+| Five realistic wildcard fields | Cached | 142.32 ms | 353.24 ms | 495.56 ms | 18.5 MB | 25 MB |
+| 17 wildcard fields | Uncached | 437.31 ms | 741.39 ms | 1,178.70 ms | 51 MB | 58.5 MB |
+| 17 wildcard fields | Cached | 316.14 ms | 730.28 ms | 1,046.42 ms | 25 MB | 32.5 MB |
+
+In the 17-wildcard stress scenario, retained memory decreased by 51.0 percent
+and build peak decreased by 44.4 percent. Build time decreased by 27.7 percent.
+The realistic scenario retained fewer allocator blocks as well, decreasing
+from 26.5 MB to 18.5 MB. Run time remained effectively unchanged in both
+scenarios, as expected for an optimization confined to compilation.

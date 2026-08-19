@@ -15,27 +15,27 @@ use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\Rules\Numeric;
 use Illuminate\Validation\Rules\StringRule;
 use Illuminate\Validation\Rules\Unique;
+use stdClass;
 
 class ValidationRuleCompiler
 {
     /**
      * The data being validated.
-     *
-     * @var array
      */
-    public $data;
+    public array $data;
 
     /**
      * The implicit attributes.
-     *
-     * @var array
      */
-    public $implicitAttributes = [];
+    public array $implicitAttributes = [];
+
+    /**
+     * The compiled wildcard rules.
+     */
+    private array $compiledWildcardRules = [];
 
     /**
      * Create a new validation rule compiler.
-     *
-     * @param  array  $data
      */
     public function __construct(array $data)
     {
@@ -44,25 +44,21 @@ class ValidationRuleCompiler
 
     /**
      * Compile the human-friendly rules for the validator.
-     *
-     * @param  array  $rules
-     * @param  array|null  $data
-     * @return \stdClass
      */
-    public function compile($rules, ?array $data = null)
+    public function compile(array $rules, ?array $data = null): stdClass
     {
         return $this->explode($this->filterConditionalRules($rules, $data ?? $this->data));
     }
 
     /**
      * Parse the human-friendly rules into a full rules array for the validator.
-     *
-     * @param  array  $rules
-     * @return \stdClass
      */
-    public function explode($rules)
+    public function explode(array $rules): stdClass
     {
         $this->implicitAttributes = [];
+
+        $this->compiledWildcardRules = [];
+
         $rules = $this->explodeRules($rules);
 
         return (object) [
@@ -73,11 +69,8 @@ class ValidationRuleCompiler
 
     /**
      * Explode the rules into an array of explicit rules.
-     *
-     * @param  array  $rules
-     * @return array
      */
-    protected function explodeRules($rules)
+    protected function explodeRules(array $rules): array
     {
         foreach ($rules as $key => $rule) {
             if (str_contains($key, '*')) {
@@ -94,12 +87,8 @@ class ValidationRuleCompiler
 
     /**
      * Explode the explicit rule into an array if necessary.
-     *
-     * @param  mixed  $rule
-     * @param  string  $attribute
-     * @return array
      */
-    protected function explodeExplicitRule($rule, $attribute)
+    protected function explodeExplicitRule(mixed $rule, string $attribute): array
     {
         if (is_string($rule)) {
             return explode('|', $rule);
@@ -128,12 +117,8 @@ class ValidationRuleCompiler
 
     /**
      * Prepare the given rule for the Validator.
-     *
-     * @param  mixed  $rule
-     * @param  string  $attribute
-     * @return mixed
      */
-    protected function prepareRule($rule, $attribute)
+    protected function prepareRule(mixed $rule, string $attribute): mixed
     {
         if ($rule instanceof Closure) {
             $rule = new ClosureValidationRule($rule);
@@ -161,22 +146,25 @@ class ValidationRuleCompiler
 
     /**
      * Define a set of rules that apply to each element in an array attribute.
-     *
-     * @param  array  $results
-     * @param  string  $attribute
-     * @param  string|array  $rules
-     * @return array
      */
-    protected function explodeWildcardRules($results, $attribute, $rules)
+    protected function explodeWildcardRules(array $results, string $attribute, string|array $rules): array
     {
         $pattern = str_replace('\*', '[^\.]*', preg_quote($attribute, '/'));
+
         $data = ValidationData::initializeAndGatherData($attribute, $this->data);
+
+        foreach ((array) $rules as $index => $rule) {
+            if ($this->isCacheableRule($rule)) {
+                $this->compiledWildcardRules[$attribute][$index] = head($this->explodeRules([$rule]));
+            }
+        }
 
         foreach ($data as $key => $value) {
             if (Str::startsWith($key, $attribute) || (bool) preg_match('/^'.$pattern.'\z/', $key)) {
-                foreach ((array) $rules as $rule) {
+                foreach ((array) $rules as $index => $rule) {
                     if ($rule instanceof CompilableRules) {
                         $context = Arr::get($this->data, Str::beforeLast($key, '.'));
+
                         $compiled = $rule->compile($key, $value, $data, $context);
 
                         $this->implicitAttributes = array_merge_recursive(
@@ -191,7 +179,9 @@ class ValidationRuleCompiler
                     } else {
                         $this->implicitAttributes[$attribute][] = $key;
 
-                        $this->mergeRulesForAttributeInto($results, $key, $rule);
+                        $this->mergeRulesForAttributeInto(
+                            $results, $key, $rule, $this->compiledWildcardRules[$attribute][$index] ?? null
+                        );
                     }
                 }
             }
@@ -202,20 +192,47 @@ class ValidationRuleCompiler
 
     /**
      * Merge additional rules into a given attribute by reference.
-     *
-     * @param  array  $results
-     * @param  string  $attribute
-     * @param  string|array  $rules
-     * @return void
      */
-    private function mergeRulesForAttributeInto(&$results, $attribute, $rules)
-    {
-        $merge = head($this->explodeRules([$rules]));
+    private function mergeRulesForAttributeInto(
+        array &$results,
+        string $attribute,
+        string|array $rules,
+        ?array $merge = null,
+    ): void {
+        if ($merge !== null && ! isset($results[$attribute])) {
+            $results[$attribute] = $merge;
+
+            return;
+        }
+
+        $merge ??= head($this->explodeRules([$rules]));
 
         $results[$attribute] = array_merge(
             isset($results[$attribute]) ? $this->explodeExplicitRule($results[$attribute], $attribute) : [],
             $merge,
         );
+    }
+
+    /**
+     * Determine if the rule can be compiled once for every wildcard match.
+     */
+    private function isCacheableRule(mixed $rule): bool
+    {
+        if (is_string($rule)) {
+            return true;
+        }
+
+        if (! is_array($rule)) {
+            return false;
+        }
+
+        foreach ($rule as $value) {
+            if (! is_string($value)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

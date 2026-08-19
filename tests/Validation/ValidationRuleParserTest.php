@@ -29,6 +29,51 @@ class ValidationRuleParserTest extends TestCase
         $this->assertSame(1, $parser->parseCount);
     }
 
+    public function testScalarWildcardRulesAreCompiledOnce()
+    {
+        $compiler = new class(['items' => [
+            ['name' => 'Taylor'],
+            ['name' => 'Abigail'],
+            ['name' => 'Dayle'],
+        ]]) extends ValidationRuleCompiler
+        {
+            public $explodeCount = 0;
+
+            protected function explodeExplicitRule(mixed $rule, string $attribute): array
+            {
+                $this->explodeCount++;
+
+                return parent::explodeExplicitRule($rule, $attribute);
+            }
+        };
+
+        $compiled = $compiler->explode([
+            'items.*.name' => ['required', 'string', 'max:255'],
+        ]);
+
+        $this->assertSame(1, $compiler->explodeCount);
+        $this->assertSame(['required', 'string', 'max:255'], $compiled->rules['items.0.name']);
+        $this->assertSame(['required', 'string', 'max:255'], $compiled->rules['items.1.name']);
+        $this->assertSame(['required', 'string', 'max:255'], $compiled->rules['items.2.name']);
+    }
+
+    public function testObjectWildcardRulesAreCompiledForEveryAttribute()
+    {
+        $compiler = new ValidationRuleCompiler(['items' => [
+            ['name' => 'Taylor'],
+            ['name' => 'Abigail'],
+        ]]);
+
+        $compiled = $compiler->explode([
+            'items.*.name' => [fn () => true],
+        ]);
+
+        $this->assertNotSame(
+            $compiled->rules['items.0.name'][0],
+            $compiled->rules['items.1.name'][0],
+        );
+    }
+
     public function testConditionalRulesAreProperlyExpandedAndFiltered()
     {
         $isAdmin = true;
