@@ -30,11 +30,6 @@ class ValidationRuleCompiler
     public array $implicitAttributes = [];
 
     /**
-     * The compiled wildcard rules.
-     */
-    private array $compiledWildcardRules = [];
-
-    /**
      * Create a new validation rule compiler.
      */
     public function __construct(array $data)
@@ -56,8 +51,6 @@ class ValidationRuleCompiler
     public function explode(array $rules): stdClass
     {
         $this->implicitAttributes = [];
-
-        $this->compiledWildcardRules = [];
 
         $rules = $this->explodeRules($rules);
 
@@ -152,12 +145,7 @@ class ValidationRuleCompiler
         $pattern = str_replace('\*', '[^\.]*', preg_quote($attribute, '/'));
 
         $data = ValidationData::initializeAndGatherData($attribute, $this->data);
-
-        foreach ((array) $rules as $index => $rule) {
-            if ($this->isCacheableRule($rule)) {
-                $this->compiledWildcardRules[$attribute][$index] = head($this->explodeRules([$rule]));
-            }
-        }
+        $preparedRules = $this->prepareWildcardRules($rules);
 
         foreach ($data as $key => $value) {
             if (Str::startsWith($key, $attribute) || (bool) preg_match('/^'.$pattern.'\z/', $key)) {
@@ -180,7 +168,7 @@ class ValidationRuleCompiler
                         $this->implicitAttributes[$attribute][] = $key;
 
                         $this->mergeRulesForAttributeInto(
-                            $results, $key, $rule, $this->compiledWildcardRules[$attribute][$index] ?? null
+                            $results, $key, $rule, $preparedRules[$index] ?? null
                         );
                     }
                 }
@@ -191,12 +179,28 @@ class ValidationRuleCompiler
     }
 
     /**
+     * Prepare the rules that can be shared by every wildcard match.
+     */
+    private function prepareWildcardRules(string|array $rules): array
+    {
+        $preparedRules = [];
+
+        foreach ((array) $rules as $index => $rule) {
+            if ($this->isCacheableRule($rule)) {
+                $preparedRules[$index] = head($this->explodeRules([$rule]));
+            }
+        }
+
+        return $preparedRules;
+    }
+
+    /**
      * Merge additional rules into a given attribute by reference.
      */
     private function mergeRulesForAttributeInto(
         array &$results,
         string $attribute,
-        string|array $rules,
+        mixed $rules,
         ?array $merge = null,
     ): void {
         if ($merge !== null && ! isset($results[$attribute])) {
