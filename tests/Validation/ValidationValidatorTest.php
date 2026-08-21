@@ -7525,6 +7525,21 @@ class ValidationValidatorTest extends TestCase
         $this->assertEquals(['validation.string'], $v->errors()->get('names.0.second'));
     }
 
+    public function testValidateEachWithAsterisksMergesIntoExplicitRulesRegardlessOfOrder()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+
+        $data = ['items' => [['name' => 'Taylor'], ['name' => '']]];
+
+        $v = new Validator($trans, $data, ['items.*.name' => 'required', 'items.1.name' => 'string']);
+        $this->assertFalse($v->passes());
+        $this->assertEquals(['validation.required'], $v->errors()->get('items.1.name'));
+
+        $v = new Validator($trans, $data, ['items.1.name' => 'string', 'items.*.name' => 'required']);
+        $this->assertFalse($v->passes());
+        $this->assertEquals(['validation.required'], $v->errors()->get('items.1.name'));
+    }
+
     public function testValidateImplicitEachWithAsterisksForRequiredNonExistingKey()
     {
         $trans = $this->getIlluminateArrayTranslator();

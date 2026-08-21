@@ -68,17 +68,21 @@ class ValidationRuleParser
      */
     protected function explodeRules($rules)
     {
+        $results = array_fill_keys(array_filter(
+            array_keys($rules), fn ($key) => ! str_contains($key, '*')
+        ), []);
+
         foreach ($rules as $key => $rule) {
             if (str_contains($key, '*')) {
-                $rules = $this->explodeWildcardRules($rules, $key, [$rule]);
-
-                unset($rules[$key]);
+                $results = $this->explodeWildcardRules($results, $key, [$rule]);
             } else {
-                $rules[$key] = $this->explodeExplicitRule($rule, $key);
+                $results[$key] = array_merge(
+                    $results[$key] ?? [], $this->explodeExplicitRule($rule, $key)
+                );
             }
         }
 
-        return $rules;
+        return $results;
     }
 
     /**

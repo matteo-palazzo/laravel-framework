@@ -175,6 +175,66 @@ class ValidationRuleParserTest extends TestCase
         $this->assertSame('bar)$/i', $exploded->rules['items.0.type'][2]);
     }
 
+    public function testExplodeMergesWildcardRulesIntoExplicitRulesDeclaredBefore()
+    {
+        $results = (new ValidationRuleParser([
+            'items' => [['name' => 'Taylor'], ['name' => 'Abigail']],
+        ]))->explode([
+            'items.1.name' => ['email'],
+            'items.*.name' => ['required'],
+        ]);
+
+        $this->assertSame([
+            'items.1.name' => ['email', 'required'],
+            'items.0.name' => ['required'],
+        ], $results->rules);
+    }
+
+    public function testExplodeMergesWildcardRulesIntoExplicitRulesDeclaredAfter()
+    {
+        $results = (new ValidationRuleParser([
+            'items' => [['name' => 'Taylor'], ['name' => 'Abigail']],
+        ]))->explode([
+            'items.*.name' => ['required'],
+            'items.1.name' => ['email'],
+        ]);
+
+        $this->assertSame([
+            'items.1.name' => ['required', 'email'],
+            'items.0.name' => ['required'],
+        ], $results->rules);
+    }
+
+    public function testExplodeMergesForEachRulesIntoExplicitRulesDeclaredAfter()
+    {
+        $results = (new ValidationRuleParser([
+            'items' => [['name' => 'Taylor'], ['name' => 'Abigail']],
+        ]))->explode([
+            'items.*.name' => Rule::forEach(fn () => ['required']),
+            'items.1.name' => ['email'],
+        ]);
+
+        $this->assertSame([
+            'items.1.name' => ['required', 'email'],
+            'items.0.name' => ['required'],
+        ], $results->rules);
+    }
+
+    public function testExplodeMergesOverlappingWildcardRules()
+    {
+        $results = (new ValidationRuleParser([
+            'items' => [['name' => 'Taylor'], ['name' => 'Abigail']],
+        ]))->explode([
+            'items.*.name' => ['required'],
+            'items.1.*' => ['max:255'],
+        ]);
+
+        $this->assertSame([
+            'items.0.name' => ['required'],
+            'items.1.name' => ['required', 'max:255'],
+        ], $results->rules);
+    }
+
     public function testExplodeGeneratesNestedRules()
     {
         $parser = (new ValidationRuleParser([
